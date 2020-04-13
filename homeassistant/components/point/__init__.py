@@ -2,6 +2,7 @@
 import asyncio
 import logging
 
+from pypoint import PointSession
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -17,7 +18,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import HomeAssistantType
 from homeassistant.util.dt import as_local, parse_datetime, utc_from_timestamp
 
-from . import config_flow  # noqa  pylint_disable=unused-import
+from . import config_flow
 from .const import (
     CONF_WEBHOOK_URL,
     DOMAIN,
@@ -71,12 +72,12 @@ async def async_setup(hass, config):
 
 async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry):
     """Set up Point from a config entry."""
-    from pypoint import PointSession
 
     def token_saver(token):
         _LOGGER.debug("Saving updated token")
-        entry.data[CONF_TOKEN] = token
-        hass.config_entries.async_update_entry(entry, data={**entry.data})
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_TOKEN: token}
+        )
 
     # Force token update.
     entry.data[CONF_TOKEN]["expires_in"] = -1
@@ -105,12 +106,18 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry):
 async def async_setup_webhook(hass: HomeAssistantType, entry: ConfigEntry, session):
     """Set up a webhook to handle binary sensor events."""
     if CONF_WEBHOOK_ID not in entry.data:
-        entry.data[CONF_WEBHOOK_ID] = hass.components.webhook.async_generate_id()
-        entry.data[CONF_WEBHOOK_URL] = hass.components.webhook.async_generate_url(
-            entry.data[CONF_WEBHOOK_ID]
+        webhook_id = hass.components.webhook.async_generate_id()
+        webhook_url = hass.components.webhook.async_generate_url(webhook_id)
+        _LOGGER.info("Registering new webhook at: %s", webhook_url)
+
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_WEBHOOK_ID: webhook_id,
+                CONF_WEBHOOK_URL: webhook_url,
+            },
         )
-        _LOGGER.info("Registering new webhook at: %s", entry.data[CONF_WEBHOOK_URL])
-        hass.config_entries.async_update_entry(entry, data={**entry.data})
     await hass.async_add_executor_job(
         session.update_webhook,
         entry.data[CONF_WEBHOOK_URL],
@@ -182,7 +189,7 @@ class MinutPointClient:
 
         async def new_device(device_id, component):
             """Load new device."""
-            config_entries_key = "{}.{}".format(component, DOMAIN)
+            config_entries_key = f"{component}.{DOMAIN}"
             async with self._hass.data[DATA_CONFIG_ENTRY_LOCK]:
                 if config_entries_key not in self._hass.data[CONFIG_ENTRY_IS_SETUP]:
                     await self._hass.config_entries.async_forward_entry_setup(
@@ -247,7 +254,7 @@ class MinutPointEntity(Entity):
 
     def __str__(self):
         """Return string representation of device."""
-        return "MinutPoint {}".format(self.name)
+        return f"MinutPoint {self.name}"
 
     async def async_added_to_hass(self):
         """Call when entity is added to hass."""
@@ -264,7 +271,6 @@ class MinutPointEntity(Entity):
 
     async def _update_callback(self):
         """Update the value of the sensor."""
-        pass
 
     @property
     def available(self):
@@ -303,7 +309,7 @@ class MinutPointEntity(Entity):
             "connections": {("mac", device["device_mac"])},
             "identifieres": device["device_id"],
             "manufacturer": "Minut",
-            "model": "Point v{}".format(device["hardware_version"]),
+            "model": f"Point v{device['hardware_version']}",
             "name": device["description"],
             "sw_version": device["firmware"]["installed"],
             "via_device": (DOMAIN, device["home"]),
@@ -312,7 +318,7 @@ class MinutPointEntity(Entity):
     @property
     def name(self):
         """Return the display name of this device."""
-        return "{} {}".format(self._name, self.device_class.capitalize())
+        return f"{self._name} {self.device_class.capitalize()}"
 
     @property
     def is_updated(self):
@@ -333,7 +339,7 @@ class MinutPointEntity(Entity):
     @property
     def unique_id(self):
         """Return the unique id of the sensor."""
-        return "point.{}-{}".format(self._id, self.device_class)
+        return f"point.{self._id}-{self.device_class}"
 
     @property
     def value(self):

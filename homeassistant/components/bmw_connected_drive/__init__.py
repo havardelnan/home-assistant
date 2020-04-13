@@ -1,13 +1,15 @@
 """Reads vehicle status from BMW connected drive portal."""
-import datetime
 import logging
 
+from bimmer_connected.account import ConnectedDriveAccount
+from bimmer_connected.country_selector import get_region_from_name
 import voluptuous as vol
 
-from homeassistant.const import CONF_USERNAME, CONF_PASSWORD
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import discovery
-from homeassistant.helpers.event import track_utc_time_change
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.event import track_utc_time_change
+import homeassistant.util.dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ CONFIG_SCHEMA = vol.Schema({DOMAIN: {cv.string: ACCOUNT_SCHEMA}}, extra=vol.ALLO
 SERVICE_SCHEMA = vol.Schema({vol.Required(ATTR_VIN): cv.string})
 
 
-BMW_COMPONENTS = ["binary_sensor", "device_tracker", "lock", "sensor"]
+BMW_COMPONENTS = ["binary_sensor", "device_tracker", "lock", "notify", "sensor"]
 UPDATE_INTERVAL = 5  # in minutes
 
 SERVICE_UPDATE_STATE = "update_state"
@@ -100,7 +102,7 @@ def setup_account(account_config: dict, hass, name: str) -> "BMWConnectedDriveAc
 
     # update every UPDATE_INTERVAL minutes, starting now
     # this should even out the load on the servers
-    now = datetime.datetime.now()
+    now = dt_util.utcnow()
     track_utc_time_change(
         hass,
         cd_account.update,
@@ -117,10 +119,7 @@ class BMWConnectedDriveAccount:
     def __init__(
         self, username: str, password: str, region_str: str, name: str, read_only
     ) -> None:
-        """Constructor."""
-        from bimmer_connected.account import ConnectedDriveAccount
-        from bimmer_connected.country_selector import get_region_from_name
-
+        """Initialize account."""
         region = get_region_from_name(region_str)
 
         self.read_only = read_only
@@ -142,7 +141,7 @@ class BMWConnectedDriveAccount:
             self.account.update_vehicle_states()
             for listener in self._update_listeners:
                 listener()
-        except IOError as exception:
+        except OSError as exception:
             _LOGGER.error(
                 "Could not connect to the BMW Connected Drive portal. "
                 "The vehicle state could not be updated."

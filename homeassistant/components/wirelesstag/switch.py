@@ -57,7 +57,7 @@ class WirelessTagSwitch(WirelessTagBaseSensor, SwitchDevice):
         super().__init__(api, tag)
         self._switch_type = switch_type
         self.sensor_type = SWITCH_TYPES[self._switch_type][1]
-        self._name = "{} {}".format(self._tag.name, SWITCH_TYPES[self._switch_type][0])
+        self._name = f"{self._tag.name} {SWITCH_TYPES[self._switch_type][0]}"
 
     def turn_on(self, **kwargs):
         """Turn on the switch."""
@@ -79,5 +79,5 @@ class WirelessTagSwitch(WirelessTagBaseSensor, SwitchDevice):
     @property
     def principal_value(self):
         """Provide actual value of switch."""
-        attr_name = "is_{}_sensor_armed".format(self.sensor_type)
+        attr_name = f"is_{self.sensor_type}_sensor_armed"
         return getattr(self._tag, attr_name, False)

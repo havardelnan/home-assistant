@@ -95,17 +95,19 @@ class WirelessTagBinarySensor(WirelessTagBaseSensor, BinarySensorDevice):
         """Initialize a binary sensor for a Wireless Sensor Tags."""
         super().__init__(api, tag)
         self._sensor_type = sensor_type
-        self._name = "{0} {1}".format(self._tag.name, self.event.human_readable_name)
+        self._name = f"{self._tag.name} {self.event.human_readable_name}"
 
     async def async_added_to_hass(self):
         """Register callbacks."""
         tag_id = self.tag_id
         event_type = self.device_class
         mac = self.tag_manager_mac
-        async_dispatcher_connect(
-            self.hass,
-            SIGNAL_BINARY_EVENT_UPDATE.format(tag_id, event_type, mac),
-            self._on_binary_event_callback,
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_BINARY_EVENT_UPDATE.format(tag_id, event_type, mac),
+                self._on_binary_event_callback,
+            )
         )
 
     @property
@@ -140,4 +142,4 @@ class WirelessTagBinarySensor(WirelessTagBaseSensor, BinarySensorDevice):
         """Update state from arrived push notification."""
         # state should be 'on' or 'off'
         self._state = event.data.get("state")
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()

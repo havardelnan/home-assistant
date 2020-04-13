@@ -1,64 +1,28 @@
 """Support for devices connected to UniFi POE."""
 import voluptuous as vol
 
-from homeassistant.const import CONF_HOST
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import callback
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 
-import homeassistant.helpers.config_validation as cv
-
-from .const import (
-    ATTR_MANUFACTURER,
-    CONF_BLOCK_CLIENT,
-    CONF_CONTROLLER,
-    CONF_DETECTION_TIME,
-    CONF_SITE_ID,
-    CONF_SSID_FILTER,
-    CONTROLLER_ID,
-    DOMAIN,
-    UNIFI_CONFIG,
-)
+from .config_flow import get_controller_id_from_config_entry
+from .const import ATTR_MANUFACTURER, DOMAIN, UNIFI_WIRELESS_CLIENTS
 from .controller import UniFiController
 
-CONF_CONTROLLERS = "controllers"
-CONF_DONT_TRACK_CLIENTS = "dont_track_clients"
-CONF_DONT_TRACK_DEVICES = "dont_track_devices"
-CONF_DONT_TRACK_WIRED_CLIENTS = "dont_track_wired_clients"
-
-CONTROLLER_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST): cv.string,
-        vol.Required(CONF_SITE_ID): cv.string,
-        vol.Optional(CONF_BLOCK_CLIENT, default=[]): vol.All(
-            cv.ensure_list, [cv.string]
-        ),
-        vol.Optional(CONF_DONT_TRACK_CLIENTS): cv.boolean,
-        vol.Optional(CONF_DONT_TRACK_DEVICES): cv.boolean,
-        vol.Optional(CONF_DONT_TRACK_WIRED_CLIENTS): cv.boolean,
-        vol.Optional(CONF_DETECTION_TIME): cv.positive_int,
-        vol.Optional(CONF_SSID_FILTER): vol.All(cv.ensure_list, [cv.string]),
-    }
-)
+SAVE_DELAY = 10
+STORAGE_KEY = "unifi_data"
+STORAGE_VERSION = 1
 
 CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Required(CONF_CONTROLLERS): vol.All(
-                    cv.ensure_list, [CONTROLLER_SCHEMA]
-                )
-            }
-        )
-    },
-    extra=vol.ALLOW_EXTRA,
+    cv.deprecated(DOMAIN, invalidation_version="0.109"), {DOMAIN: cv.match_all}
 )
 
 
 async def async_setup(hass, config):
     """Component doesn't support configuration through configuration.yaml."""
-    hass.data[UNIFI_CONFIG] = []
-
-    if DOMAIN in config:
-        hass.data[UNIFI_CONFIG] = config[DOMAIN][CONF_CONTROLLERS]
+    hass.data[UNIFI_WIRELESS_CLIENTS] = wireless_clients = UnifiWirelessClients(hass)
+    await wireless_clients.async_load()
 
     return True
 
@@ -70,15 +34,13 @@ async def async_setup_entry(hass, config_entry):
 
     controller = UniFiController(hass, config_entry)
 
-    controller_id = CONTROLLER_ID.format(
-        host=config_entry.data[CONF_CONTROLLER][CONF_HOST],
-        site=config_entry.data[CONF_CONTROLLER][CONF_SITE_ID],
-    )
-
-    hass.data[DOMAIN][controller_id] = controller
-
     if not await controller.async_setup():
         return False
+
+    controller_id = get_controller_id_from_config_entry(config_entry)
+    hass.data[DOMAIN][controller_id] = controller
+
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, controller.shutdown)
 
     if controller.mac is None:
         return True
@@ -98,9 +60,46 @@ async def async_setup_entry(hass, config_entry):
 
 async def async_unload_entry(hass, config_entry):
     """Unload a config entry."""
-    controller_id = CONTROLLER_ID.format(
-        host=config_entry.data[CONF_CONTROLLER][CONF_HOST],
-        site=config_entry.data[CONF_CONTROLLER][CONF_SITE_ID],
-    )
+    controller_id = get_controller_id_from_config_entry(config_entry)
     controller = hass.data[DOMAIN].pop(controller_id)
     return await controller.async_reset()
+
+
+class UnifiWirelessClients:
+    """Class to store clients known to be wireless.
+
+    This is needed since wireless devices going offline might get marked as wired by UniFi.
+    """
+
+    def __init__(self, hass):
+        """Set up client storage."""
+        self.hass = hass
+        self.data = {}
+        self._store = hass.helpers.storage.Store(STORAGE_VERSION, STORAGE_KEY)
+
+    async def async_load(self):
+        """Load data from file."""
+        data = await self._store.async_load()
+
+        if data is not None:
+            self.data = data
+
+    @callback
+    def get_data(self, config_entry):
+        """Get data related to a specific controller."""
+        controller_id = get_controller_id_from_config_entry(config_entry)
+        data = self.data.get(controller_id, {"wireless_devices": []})
+        return set(data["wireless_devices"])
+
+    @callback
+    def update_data(self, data, config_entry):
+        """Update data and schedule to save to file."""
+        controller_id = get_controller_id_from_config_entry(config_entry)
+        self.data[controller_id] = {"wireless_devices": list(data)}
+
+        self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
+
+    @callback
+    def _data_to_save(self):
+        """Return data of UniFi wireless clients to store in a file."""
+        return self.data

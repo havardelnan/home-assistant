@@ -37,18 +37,23 @@ class SabnzbdSensor(Entity):
 
     async def async_added_to_hass(self):
         """Call when entity about to be added to hass."""
-        async_dispatcher_connect(self.hass, SIGNAL_SABNZBD_UPDATED, self.update_state)
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SABNZBD_UPDATED, self.update_state
+            )
+        )
 
     @property
     def name(self):
         """Return the name of the sensor."""
-        return "{} {}".format(self._client_name, self._name)
+        return f"{self._client_name} {self._name}"
 
     @property
     def state(self):
         """Return the state of the sensor."""
         return self._state
 
+    @property
     def should_poll(self):
         """Don't poll. Will be updated by dispatcher signal."""
         return False

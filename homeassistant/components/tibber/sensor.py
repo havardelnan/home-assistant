@@ -5,6 +5,7 @@ import logging
 
 import aiohttp
 
+from homeassistant.const import POWER_WATT
 from homeassistant.exceptions import PlatformNotReady
 from homeassistant.helpers.entity import Entity
 from homeassistant.util import Throttle, dt as dt_util
@@ -44,8 +45,8 @@ async def async_setup_platform(hass, config, async_add_entities, discovery_info=
     async_add_entities(dev, True)
 
 
-class TibberSensorElPrice(Entity):
-    """Representation of an Tibber sensor for el price."""
+class TibberSensor(Entity):
+    """Representation of a generic Tibber sensor."""
 
     def __init__(self, tibber_home):
         """Initialize the sensor."""
@@ -54,10 +55,25 @@ class TibberSensorElPrice(Entity):
         self._state = None
         self._is_available = False
         self._device_state_attributes = {}
-        self._unit_of_measurement = self._tibber_home.price_unit
-        self._name = "Electricity price {}".format(
-            tibber_home.info["viewer"]["home"]["appNickname"]
-        )
+        self._name = tibber_home.info["viewer"]["home"]["appNickname"]
+        if self._name is None:
+            self._name = tibber_home.info["viewer"]["home"]["address"].get(
+                "address1", ""
+            )
+
+    @property
+    def device_state_attributes(self):
+        """Return the state attributes."""
+        return self._device_state_attributes
+
+    @property
+    def state(self):
+        """Return the state of the device."""
+        return self._state
+
+
+class TibberSensorElPrice(TibberSensor):
+    """Representation of a Tibber sensor for el price."""
 
     async def async_update(self):
         """Get the latest data and updates the states."""
@@ -87,11 +103,6 @@ class TibberSensorElPrice(Entity):
         self._is_available = self._state is not None
 
     @property
-    def device_state_attributes(self):
-        """Return the state attributes."""
-        return self._device_state_attributes
-
-    @property
     def available(self):
         """Return True if entity is available."""
         return self._is_available
@@ -99,12 +110,7 @@ class TibberSensorElPrice(Entity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return self._name
-
-    @property
-    def state(self):
-        """Return the state of the device."""
-        return self._state
+        return f"Electricity price {self._name}"
 
     @property
     def icon(self):
@@ -114,7 +120,7 @@ class TibberSensorElPrice(Entity):
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement of this entity."""
-        return self._unit_of_measurement
+        return self._tibber_home.price_unit
 
     @property
     def unique_id(self):
@@ -139,17 +145,8 @@ class TibberSensorElPrice(Entity):
         ]["estimatedAnnualConsumption"]
 
 
-class TibberSensorRT(Entity):
-    """Representation of an Tibber sensor for real time consumption."""
-
-    def __init__(self, tibber_home):
-        """Initialize the sensor."""
-        self._tibber_home = tibber_home
-        self._state = None
-        self._device_state_attributes = {}
-        self._unit_of_measurement = "W"
-        nickname = tibber_home.info["viewer"]["home"]["appNickname"]
-        self._name = "Real time consumption {}".format(nickname)
+class TibberSensorRT(TibberSensor):
+    """Representation of a Tibber sensor for real time consumption."""
 
     async def async_added_to_hass(self):
         """Start unavailability tracking."""
@@ -173,12 +170,7 @@ class TibberSensorRT(Entity):
                 continue
             self._device_state_attributes[key] = value
 
-        self.async_schedule_update_ha_state()
-
-    @property
-    def device_state_attributes(self):
-        """Return the state attributes."""
-        return self._device_state_attributes
+        self.async_write_ha_state()
 
     @property
     def available(self):
@@ -188,17 +180,12 @@ class TibberSensorRT(Entity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return self._name
+        return f"Real time consumption {self._name}"
 
     @property
     def should_poll(self):
         """Return the polling state."""
         return False
-
-    @property
-    def state(self):
-        """Return the state of the device."""
-        return self._state
 
     @property
     def icon(self):
@@ -208,11 +195,11 @@ class TibberSensorRT(Entity):
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement of this entity."""
-        return self._unit_of_measurement
+        return POWER_WATT
 
     @property
     def unique_id(self):
         """Return a unique ID."""
         home = self._tibber_home.info["viewer"]["home"]
         _id = home["meteringPointData"]["consumptionEan"]
-        return "{}_rt_consumption".format(_id)
+        return f"{_id}_rt_consumption"

@@ -146,8 +146,6 @@ async def async_setup(hass, config):
     if DOMAIN not in config:
         return True
 
-    success = False
-
     for panel in config[DOMAIN]:
         name = panel[CONF_COMPONENT_NAME]
 
@@ -165,7 +163,7 @@ async def async_setup(hass, config):
         panel_path = panel.get(CONF_WEBCOMPONENT_PATH)
 
         if panel_path is None:
-            panel_path = hass.config.path(PANEL_DIR, "{}.html".format(name))
+            panel_path = hass.config.path(PANEL_DIR, f"{name}.html")
 
         if CONF_JS_URL in panel:
             kwargs["js_url"] = panel[CONF_JS_URL]
@@ -182,8 +180,13 @@ async def async_setup(hass, config):
             hass.http.register_static_path(url, panel_path)
             kwargs["html_url"] = url
 
-        await async_register_panel(hass, **kwargs)
+        try:
+            await async_register_panel(hass, **kwargs)
+        except ValueError as err:
+            _LOGGER.error(
+                "Unable to register panel %s: %s",
+                panel.get(CONF_SIDEBAR_TITLE, name),
+                err,
+            )
 
-        success = True
-
-    return success
+    return True

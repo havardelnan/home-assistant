@@ -10,6 +10,7 @@ from aiohttp.web_exceptions import HTTPForbidden, HTTPUnauthorized
 import voluptuous as vol
 
 from homeassistant.config import load_yaml_config_file
+from homeassistant.const import HTTP_BAD_REQUEST
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 import homeassistant.helpers.config_validation as cv
@@ -17,8 +18,7 @@ from homeassistant.util.yaml import dump
 
 from .const import KEY_REAL_IP
 
-
-# mypy: allow-incomplete-defs, allow-untyped-defs, no-check-untyped-defs
+# mypy: allow-untyped-defs, no-check-untyped-defs
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ def log_invalid_auth(func):
     async def handle_req(view, request, *args, **kwargs):
         """Try to log failed login attempts if response status >= 400."""
         resp = await func(view, request, *args, **kwargs)
-        if resp.status >= 400:
+        if resp.status >= HTTP_BAD_REQUEST:
             await process_wrong_login(request)
         return resp
 
@@ -97,9 +97,7 @@ async def process_wrong_login(request):
     """
     remote_addr = request[KEY_REAL_IP]
 
-    msg = "Login attempt or request with invalid authentication " "from {}".format(
-        remote_addr
-    )
+    msg = f"Login attempt or request with invalid authentication from {remote_addr}"
     _LOGGER.warning(msg)
 
     hass = request.app["hass"]
@@ -112,6 +110,12 @@ async def process_wrong_login(request):
         return
 
     request.app[KEY_FAILED_LOGIN_ATTEMPTS][remote_addr] += 1
+
+    # Supervisor IP should never be banned
+    if "hassio" in hass.config.components and hass.components.hassio.get_supervisor_ip() == str(
+        remote_addr
+    ):
+        return
 
     if (
         request.app[KEY_FAILED_LOGIN_ATTEMPTS][remote_addr]
@@ -151,7 +155,7 @@ async def process_success_login(request):
         and request.app[KEY_FAILED_LOGIN_ATTEMPTS][remote_addr] > 0
     ):
         _LOGGER.debug(
-            "Login success, reset failed login attempts counter" " from %s", remote_addr
+            "Login success, reset failed login attempts counter from %s", remote_addr
         )
         request.app[KEY_FAILED_LOGIN_ATTEMPTS].pop(remote_addr)
 
@@ -165,7 +169,7 @@ class IpBan:
         self.banned_at = banned_at or datetime.utcnow()
 
 
-async def async_load_ip_bans_config(hass: HomeAssistant, path: str):
+async def async_load_ip_bans_config(hass: HomeAssistant, path: str) -> List[IpBan]:
     """Load list of banned IPs from config file."""
     ip_list: List[IpBan] = []
 
@@ -188,7 +192,7 @@ async def async_load_ip_bans_config(hass: HomeAssistant, path: str):
     return ip_list
 
 
-def update_ip_bans_config(path: str, ip_ban: IpBan):
+def update_ip_bans_config(path: str, ip_ban: IpBan) -> None:
     """Update config file with new banned IP address."""
     with open(path, "a") as out:
         ip_ = {

@@ -13,20 +13,14 @@ class AxisEntityBase(Entity):
     def __init__(self, device):
         """Initialize the Axis event."""
         self.device = device
-        self.unsub_dispatcher = []
 
     async def async_added_to_hass(self):
         """Subscribe device events."""
-        self.unsub_dispatcher.append(
+        self.async_on_remove(
             async_dispatcher_connect(
                 self.hass, self.device.event_reachable, self.update_callback
             )
         )
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe device events when removed."""
-        for unsub_dispatcher in self.unsub_dispatcher:
-            unsub_dispatcher()
 
     @property
     def available(self):
@@ -41,7 +35,7 @@ class AxisEntityBase(Entity):
     @callback
     def update_callback(self, no_delay=None):
         """Update the entities state."""
-        self.async_schedule_update_ha_state()
+        self.async_write_ha_state()
 
 
 class AxisEventBase(AxisEntityBase):
@@ -72,7 +66,7 @@ class AxisEventBase(AxisEntityBase):
     @property
     def name(self):
         """Return the name of the event."""
-        return "{} {} {}".format(self.device.name, self.event.TYPE, self.event.id)
+        return f"{self.device.name} {self.event.TYPE} {self.event.id}"
 
     @property
     def should_poll(self):
@@ -82,4 +76,4 @@ class AxisEventBase(AxisEntityBase):
     @property
     def unique_id(self):
         """Return a unique identifier for this device."""
-        return "{}-{}-{}".format(self.device.serial, self.event.topic, self.event.id)
+        return f"{self.device.serial}-{self.event.topic}-{self.event.id}"

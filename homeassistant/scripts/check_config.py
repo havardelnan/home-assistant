@@ -1,31 +1,29 @@
 """Script to check the configuration file."""
-
 import argparse
-import logging
-import os
 from collections import OrderedDict
 from glob import glob
-from typing import Dict, List, Sequence, Any, Tuple, Callable
+import logging
+import os
+from typing import Any, Callable, Dict, List, Sequence, Tuple
 from unittest.mock import patch
 
 from homeassistant import bootstrap, core
 from homeassistant.config import get_default_config_dir
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.check_config import async_check_ha_config_file
 import homeassistant.util.yaml.loader as yaml_loader
-from homeassistant.exceptions import HomeAssistantError
-
 
 # mypy: allow-untyped-calls, allow-untyped-defs
 
-REQUIREMENTS = ("colorlog==4.0.2",)
+REQUIREMENTS = ("colorlog==4.1.0",)
 
 _LOGGER = logging.getLogger(__name__)
 # pylint: disable=protected-access
-MOCKS = {
+MOCKS: Dict[str, Tuple[str, Callable]] = {
     "load": ("homeassistant.util.yaml.loader.load_yaml", yaml_loader.load_yaml),
     "load*": ("homeassistant.config.load_yaml", yaml_loader.load_yaml),
     "secrets": ("homeassistant.util.yaml.loader.secret_yaml", yaml_loader.secret_yaml),
-}  # type: Dict[str, Tuple[str, Callable]]
+}
 SILENCE = ("homeassistant.scripts.check_config.yaml_loader.clear_secret_cache",)
 
 PATCHES: Dict[str, Any] = {}
@@ -36,6 +34,7 @@ ERROR_STR = "General Errors"
 
 def color(the_color, *args, reset=None):
     """Color helper."""
+    # pylint: disable=import-outside-toplevel
     from colorlog.escape_codes import escape_codes, parse_colors
 
     try:
@@ -44,7 +43,7 @@ def color(the_color, *args, reset=None):
             return parse_colors(the_color)
         return parse_colors(the_color) + " ".join(args) + escape_codes[reset or "reset"]
     except KeyError as k:
-        raise ValueError("Invalid color {} in {}".format(str(k), the_color))
+        raise ValueError(f"Invalid color {k!s} in {the_color}")
 
 
 def run(script_args: List) -> int:
@@ -82,7 +81,7 @@ def run(script_args: List) -> int:
 
     res = check(config_dir, args.secrets)
 
-    domain_info = []  # type: List[str]
+    domain_info: List[str] = []
     if args.info:
         domain_info = args.info.split(",")
 
@@ -119,10 +118,10 @@ def run(script_args: List) -> int:
                 if domain == ERROR_STR:
                     continue
                 print(" ", color(C_HEAD, domain + ":"))
-                dump_dict(res["components"].get(domain, None))
+                dump_dict(res["components"].get(domain))
 
     if args.secrets:
-        flatsecret = {}  # type: Dict[str, str]
+        flatsecret: Dict[str, str] = {}
 
         for sfn, sdict in res["secret_cache"].items():
             sss = []
@@ -153,13 +152,13 @@ def run(script_args: List) -> int:
 def check(config_dir, secrets=False):
     """Perform a check by mocking hass load functions."""
     logging.getLogger("homeassistant.loader").setLevel(logging.CRITICAL)
-    res = {
+    res: Dict[str, Any] = {
         "yaml_files": OrderedDict(),  # yaml_files loaded
         "secrets": OrderedDict(),  # secret cache and secrets loaded
         "except": OrderedDict(),  # exceptions raised (with config)
         #'components' is a HomeAssistantConfig  # noqa: E265
         "secret_cache": None,
-    }  # type: Dict[str, Any]
+    }
 
     # pylint: disable=possibly-unused-variable
     def mock_load(filename):
@@ -187,7 +186,7 @@ def check(config_dir, secrets=False):
             continue
         # The * in the key is removed to find the mock_function (side_effect)
         # This allows us to use one side_effect to patch multiple locations
-        mock_function = locals()["mock_" + key.replace("*", "")]
+        mock_function = locals()[f"mock_{key.replace('*', '')}"]
         PATCHES[key] = patch(val[0], side_effect=mock_function)
 
     # Start all patches
@@ -234,9 +233,7 @@ def line_info(obj, **kwargs):
     """Display line config source."""
     if hasattr(obj, "__config_file__"):
         return color(
-            "cyan",
-            "[source {}:{}]".format(obj.__config_file__, obj.__line__ or "?"),
-            **kwargs,
+            "cyan", f"[source {obj.__config_file__}:{obj.__line__ or '?'}]", **kwargs
         )
     return "?"
 

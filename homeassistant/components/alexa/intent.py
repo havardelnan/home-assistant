@@ -113,7 +113,7 @@ async def async_handle_message(hass, message):
     handler = HANDLERS.get(req_type)
 
     if not handler:
-        raise UnknownRequest("Received unknown request {}".format(req_type))
+        raise UnknownRequest(f"Received unknown request {req_type}")
 
     return await handler(hass, message)
 
@@ -201,7 +201,7 @@ def resolve_slot_synonyms(key, request):
             _LOGGER.debug(
                 "Found multiple synonym resolutions for slot value: {%s: %s}",
                 key,
-                request["value"],
+                resolved_value,
             )
 
     return resolved_value
